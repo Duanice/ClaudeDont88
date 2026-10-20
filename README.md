@@ -8,6 +8,7 @@ macOS 上 Claude Code 专用代理与断网保护的开发项目。
 ## 本版本实现
 
 - Swift 原生实验界面：登记已签名程序、查看策略、在具备签名条件的构建中请求系统扩展授权。
+- build 2：一键扫描已安装的 Claude 桌面包及标准位置的原生 CLI，验证 Anthropic 签名，登记包内原生可执行程序，按签名身份去重并展示未覆盖项。
 - `NEFilterDataProvider` 原型：按代码签名要求和系统审计标识匹配程序，不按进程名称匹配。
 - 默认拒绝目标程序全部网络；实验模式可仅放行一个明确的本地 TCP 端点。
 - 显式过滤 IPv4/IPv6 回环流量，拒绝错误端口、其他地址、UDP 和无法识别的目标端点。
@@ -20,7 +21,7 @@ macOS 上 Claude Code 专用代理与断网保护的开发项目。
 1. **没有证明“绝不直连”。** 单元测试验证策略函数，不证明系统实际执行了过滤。
 2. **本地端口不代表美国出口。** 代理可以转为 DIRECT；v0.1.0 没有控制代理上游。
 3. **身份缺失的流量不在覆盖范围。** 为不误伤无关应用，无法归属的连接会放行并记录 `UNATTRIBUTED`。
-4. 只覆盖登记的签名身份，不会自动包含 Claude Helper、脚本解释器、任意子进程、系统代发 DNS 或远程任务。
+4. 只覆盖登记的签名身份。扫描可登记已安装包内的 Helper；不会包含运行时下载的程序、脚本解释器、任意子进程、系统代发 DNS、虚拟机或远程任务。
 5. 启用前已经存在的连接、扩展崩溃/卡死/移除、系统切换网络和重启的行为尚未完成实机验收。
 6. 没有任务启动门禁、独立代理通道、后台守护、SIGKILL、开机恢复或自动更新。后续版本实现。
 
@@ -41,14 +42,22 @@ open build/ClaudeDont88.app
 它没有 Developer ID 签名或 Apple 公证；从 GitHub 下载的预览包可能被 Gatekeeper 拦截。
 建议从源代码构建，不要关闭 Gatekeeper、SIP 或其他系统保护。
 
-`guard-probe` 可读取目标程序的指定代码签名要求：
+点击 **“扫描已安装的 Claude”** 查看桌面版、CLI、程序清单和未覆盖项。扫描只读取文件，不启动 Claude；预览包中目标清单只保存在本次运行内。更新 Claude 后重新扫描并核对清单。
+
+`guard-probe` 也可扫描并输出 JSON，或读取单个程序的指定代码签名要求：
 
 ```sh
+build/ClaudeDont88.app/Contents/Helpers/guard-probe discover-claude
+build/ClaudeDont88.app/Contents/Helpers/guard-probe discover-claude /path/to/Claude.app
 build/ClaudeDont88.app/Contents/Helpers/guard-probe identity /path/to/Claude.app
 build/ClaudeDont88.app/Contents/Helpers/guard-probe identity /path/to/claude
 ```
 
-选择桌面 App 只登记该 App 的主签名；辅助程序须逐个选择。选择通用 `node`、`python`、shell 等解释器会匹配它们运行的其他任务，不能作为 Claude 专用隔离方案。
+扫描退出码：`0` 表示扫描到程序且无报告项，`3` 表示有程序但存在未覆盖项，`2` 表示未登记任何程序；均不表示网络保护已生效。
+默认检查 `/Applications/Claude.app`、`~/Applications/Claude.app` 中首个存在的 App。CLI 检查 `~/.local/bin/claude`、`/opt/homebrew/bin/claude`、`/usr/local/bin/claude`、`~/.claude/local/claude`。自定义路径可手动添加。
+
+自动扫描要求 Apple 签名链和经本机签名核实的 Anthropic Team ID；桌面主包还须匹配官方 bundle ID。脚本安装、签名不符或检查失败会报告为未覆盖。动态库不作为独立进程登记。
+“添加已签名程序…”只登记所选对象；选择整个 App 时只登记主签名。选择通用 `node`、`python`、shell 等解释器会匹配它们运行的其他任务，不能作为 Claude 专用隔离方案。
 
 ## 实验性系统扩展构建
 
@@ -80,7 +89,7 @@ python3 scripts/build_app.py \
 | v0.2.0 | 菜单栏、受控启动、强退、专用代理 | 未实现 |
 | v1.0.0 | 完成故障验收，签名与公证分发 | 未实现 |
 
-GitHub Releases 中的 `v0.1.0` 标记为 **Pre-release**。验收证据见 [v0.1.0 验证记录](docs/V0.1.0-RESULTS.md)。
+GitHub Releases 中的 `v0.1.0` 与 `v0.1.0-build.2` 均标记为 **Pre-release**，App 版本保持 `0.1.0`，当前构建号 `2`。原始标签和发布包保留。验收证据见 [build 2 验证记录](docs/V0.1.0-BUILD2-RESULTS.md) 和 [首版验证记录](docs/V0.1.0-RESULTS.md)。
 首次初始化空仓库提交到 `main`；后续通过功能分支和 PR 合入。
 
 代理订阅、节点密码、Claude 凭据、证书私钥和本机完整日志均不得提交到公共仓库。

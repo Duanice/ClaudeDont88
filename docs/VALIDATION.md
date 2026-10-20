@@ -29,6 +29,17 @@ python3 scripts/probe_baseline.py build/ClaudeDont88.app/Contents/Helpers/guard-
 
 ## 签名版本的本地端点实验
 
+### 安装清单检查（不启动 Claude）
+
+```sh
+build/ClaudeDont88.app/Contents/Helpers/guard-probe discover-claude
+```
+
+核对桌面路径、版本、每个可执行文件的签名要求及 `issues`。缺少 CLI、脚本或验证失败应可见；退出码 `3` 表示部分清单，不能当成完整覆盖。界面扫描应显示相同数量并保持“未启用”状态。完整清单也不证明实际过滤。
+对更新后的 Claude 重复扫描；不要把包含用户名的本机完整路径报告直接提交到公共仓库。
+
+### 流量测试
+
 1. 正确签名并把 App 安装到 `/Applications`。
 2. 请求系统扩展授权，确认 `systemextensionsctl list` 中该扩展已激活。
 3. 先不启用过滤；启动两个测试端点（分别在终端运行）：

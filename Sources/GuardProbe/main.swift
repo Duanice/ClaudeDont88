@@ -12,6 +12,16 @@ func emit(_ object: [String: Any], code: Int32) -> Never {
 }
 
 let args = Array(CommandLine.arguments.dropFirst())
+if (args.count == 1 || args.count == 2), args[0] == "discover-claude" {
+    let inventory = ClaudeDiscovery.scan(desktopURL: args.count == 2 ? URL(fileURLWithPath: args[1]) : nil)
+    do {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        FileHandle.standardOutput.write(try encoder.encode(inventory))
+        FileHandle.standardOutput.write(Data([10]))
+        exit(inventory.executables.isEmpty ? 2 : inventory.issues.isEmpty ? 0 : 3)
+    } catch { emit(["error": error.localizedDescription], code: 64) }
+}
 if args.count == 2, args[0] == "identity" {
     do {
         let target = try CodeIdentity.inspect(URL(fileURLWithPath: args[1]))
@@ -23,7 +33,7 @@ guard args.count == 4 || args.count == 5, args.first == "exchange",
       PolicyEngine.numericAddress(args[2]) != nil,
       let portValue = UInt16(args[3]), portValue > 0,
       let port = NWEndpoint.Port(rawValue: portValue) else {
-    emit(["error": "Usage: guard-probe identity PATH | exchange tcp|udp NUMERIC_IP PORT [COUNT]"], code: 64)
+    emit(["error": "Usage: guard-probe discover-claude [APP_PATH] | identity PATH | exchange tcp|udp NUMERIC_IP PORT [COUNT]"], code: 64)
 }
 let repetitions = args.count == 5 ? Int(args[4]) : 1
 guard let repetitions, (1...60).contains(repetitions) else {
