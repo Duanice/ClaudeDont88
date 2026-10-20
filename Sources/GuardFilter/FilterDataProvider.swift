@@ -115,11 +115,18 @@ final class FilterDataProvider: NEFilterDataProvider {
     }
 
     override func handleInboundDataComplete(for flow: NEFilterFlow) -> NEFilterDataVerdict {
-        dataVerdict(for: flow, count: 0)
+        completionVerdict(for: flow)
     }
 
     override func handleOutboundDataComplete(for flow: NEFilterFlow) -> NEFilterDataVerdict {
-        dataVerdict(for: flow, count: 0)
+        completionVerdict(for: flow)
+    }
+
+    private func completionVerdict(for flow: NEFilterFlow) -> NEFilterDataVerdict {
+        lock.lock()
+        defer { lock.unlock() }
+        // EOF requires a final verdict, not a request to inspect bytes that cannot arrive.
+        return !stopping && tracked[flow.identifier] != nil ? .allow() : .drop()
     }
 
     override func handle(_ report: NEFilterReport) {
