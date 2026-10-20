@@ -1,0 +1,78 @@
+{
+  "name": "ClaudeDont88 Probe Only",
+  "description": "Feasibility experiment for one temporary POSIX probe only. Not production Claude protection. Disable or remove this group after testing.",
+  "rules": [
+    {
+      "process": "/private/tmp/ClaudeDont88-firewall-probe/guard-probe-posix",
+      "direction": "outgoing",
+      "priority": "high",
+      "notes": "ClaudeDont88 remote probe ONLY; remove the group after testing.",
+      "action": "deny",
+      "remote": "any"
+    },
+    {
+      "process": "/private/tmp/ClaudeDont88-firewall-probe/guard-probe-posix",
+      "direction": "outgoing",
+      "priority": "high",
+      "notes": "ClaudeDont88 remote probe ONLY; remove the group after testing.",
+      "action": "deny",
+      "remote-addresses": "127.0.0.1"
+    },
+    {
+      "process": "/private/tmp/ClaudeDont88-firewall-probe/guard-probe-posix",
+      "direction": "outgoing",
+      "priority": "high",
+      "notes": "ClaudeDont88 remote probe ONLY; remove the group after testing.",
+      "action": "deny",
+      "remote-addresses": "::1"
+    },
+    {
+      "process": "/private/tmp/ClaudeDont88-firewall-probe/guard-probe-posix",
+      "direction": "outgoing",
+      "priority": "high",
+      "notes": "ClaudeDont88 remote probe ONLY; remove the group after testing.",
+      "action": "allow",
+      "remote-addresses": "127.0.0.1",
+      "ports": "17988",
+      "protocol": "tcp"
+    },
+    {
+      "process": "identifier.2DC432GLL2/com.openai.codex",
+      "direction": "outgoing",
+      "priority": "high",
+      "notes": "ClaudeDont88 remote probe ONLY; remove the group after testing.",
+      "action": "deny",
+      "remote": "any",
+      "via": "/private/tmp/ClaudeDont88-firewall-probe/guard-probe-posix"
+    },
+    {
+      "process": "identifier.2DC432GLL2/com.openai.codex",
+      "direction": "outgoing",
+      "priority": "high",
+      "notes": "ClaudeDont88 remote probe ONLY; remove the group after testing.",
+      "action": "deny",
+      "remote-addresses": "127.0.0.1",
+      "via": "/private/tmp/ClaudeDont88-firewall-probe/guard-probe-posix"
+    },
+    {
+      "process": "identifier.2DC432GLL2/com.openai.codex",
+      "direction": "outgoing",
+      "priority": "high",
+      "notes": "ClaudeDont88 remote probe ONLY; remove the group after testing.",
+      "action": "deny",
+      "remote-addresses": "::1",
+      "via": "/private/tmp/ClaudeDont88-firewall-probe/guard-probe-posix"
+    },
+    {
+      "process": "identifier.2DC432GLL2/com.openai.codex",
+      "direction": "outgoing",
+      "priority": "high",
+      "notes": "ClaudeDont88 remote probe ONLY; remove the group after testing.",
+      "action": "allow",
+      "remote-addresses": "127.0.0.1",
+      "ports": "17988",
+      "protocol": "tcp",
+      "via": "/private/tmp/ClaudeDont88-firewall-probe/guard-probe-posix"
+    }
+  ]
+}

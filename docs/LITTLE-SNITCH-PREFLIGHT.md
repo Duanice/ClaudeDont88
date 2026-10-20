@@ -65,6 +65,21 @@ python3 scripts/littlesnitch_preflight.py /absolute/test/guard-probe-posix --bas
 
 CI 只运行两种探针的回环基线、接收端对照和失败判定反例，没有安装 Little Snitch，不能作为过滤验收。
 
+## 通过界面添加远程测试规则组
+
+本机 Little Snitch 6.5 的实际 File 菜单没有显示 “Import Rules from File…”。不要据安装包中的菜单字符串推断某个入口当前可用，也不要将 `.lsrules` 文件作为完整备份恢复。
+
+可用入口为 **File → New Remote Rule Group…**，与[官方规则组说明](https://help.obdev.at/littlesnitch6/lsc-rulegroups)一致。仓库的 `examples/littlesnitch-probe-only.lsrules` 仅匹配 `/private/tmp/ClaudeDont88-firewall-probe/guard-probe-posix`，包含程序本身及 Codex 经由该程序的规则，共八条。允许范围只有 `127.0.0.1:17988/TCP`，另有全目标拒绝和 IPv4/IPv6 回环精确拒绝。
+
+1. 用本仓库的 C 源码构建该探针。专用目录必须属于当前用户、权限为 `0700`，不得覆盖他人的目录、符号链接或已有程序。
+2. 先运行基线，确认允许端点及待禁止端点均可达。
+3. 将规则文件发布到自己控制的 HTTPS 地址。GitHub 使用包含完整提交 SHA 的 raw 链接，将实验固定在一个版本；不要使用随分支更新的链接。
+4. 选择 New Remote Rule Group，填入链接并点击 Add。核对名称为 **ClaudeDont88 Probe Only**。启用 Active，并取消 Disable new allow rules，使两条仅限探针指定端口的允许规则也生效；否则允许端口的测试也会失败。
+5. 如果 macOS 或 Little Snitch 要求管理员验证，在系统界面完成。远程规则组对所有用户生效，但本例规则仅匹配这一个专用探针。不要为了实验关闭全局过滤或其他应用的规则。
+6. 导出读回，核对八条规则的程序、目标、端口、启用状态和组状态，再执行限制测试。完成后禁用或移除整个测试组，运行恢复基线并核查其他规则保持一致。
+
+这组规则还没有通过本机拦截验收，不得直接换成 Claude 路径投入使用。
+
 ## 下一步仍需验证
 
 本测试不覆盖真实 Claude、外网出口、DNS、系统代发流量、任意子进程、虚拟机或过滤器崩溃。回环测试通过也不能证明这些项目成立。
