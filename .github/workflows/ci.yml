@@ -23,6 +23,10 @@ jobs:
         run: python3 scripts/probe_baseline.py build/ClaudeDont88.app/Contents/Helpers/guard-probe
       - name: Firewall experiment receiver controls (no Little Snitch installed)
         run: python3 scripts/littlesnitch_preflight.py build/ClaudeDont88.app/Contents/Helpers/guard-probe --baseline
+      - name: Raw socket firewall probe baseline (no Little Snitch installed)
+        run: |
+          clang -Wall -Wextra -Werror -O2 scripts/littlesnitch_posix_probe.c -o build/guard-probe-posix
+          python3 scripts/littlesnitch_preflight.py build/guard-probe-posix --baseline
       - name: Worker failures, leases, detached descendants and controller disconnects
         run: python3 scripts/runtime_baseline.py build/ClaudeDont88.app/Contents/Helpers/guard-runtime
       - name: Package preview

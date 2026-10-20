@@ -47,6 +47,24 @@ python3 scripts/littlesnitch_preflight.py /absolute/test/guard-probe \
 
 脚本失败返回 `2`。任何禁止端点仍可达，都应保留失败记录，不能据其他通过项目解锁真实任务。关闭实验规则后再运行 baseline，可作为回滚及归因对照。
 
+## 原始 socket 对照
+
+`guard-probe` 使用 Network.framework，该框架可能选择系统代理。外网探针取得响应不能单独证明它使用了直连。`littlesnitch_posix_probe.c` 提供独立的 BSD socket 探针，使用数值地址，不读取 HTTP/SOCKS 代理设置；系统路由、TUN 和其他网络扩展仍可能影响它。
+
+```sh
+clang -Wall -Wextra -Werror -O2 scripts/littlesnitch_posix_probe.c -o /absolute/test/guard-probe-posix
+python3 scripts/littlesnitch_preflight.py /absolute/test/guard-probe-posix --baseline
+
+# 仅建立 TCP 连接，不发送应用层数据；地址必须先由未受规则限制的对照确认可达
+/absolute/test/guard-probe-posix connect tcp NUMERIC_IP PORT
+```
+
+对照顺序为：导入前可连接 → 限制规则启用后拒绝 → 撤销实验规则后恢复。限制期间仍需未受规则限制的正向对照。超时、服务器失效或试验程序未正常执行，不足以判定防火墙拦截成功。
+
+`.lsrules` 交换文件与 `export-model` 备份的内部结构不同，不应直接拼接规则对象。`restore-model` 成功或导出能读到规则，均不能证明规则能匹配进程。出现疑问时，应以 Little Snitch 原生导入后的规则表示和实际连接测试为准，并核对宿主应用与辅助程序的匹配关系。不要通过修改全局放行规则解决仅限探针的试验问题。
+
+CI 只运行两种探针的回环基线、接收端对照和失败判定反例，没有安装 Little Snitch，不能作为过滤验收。
+
 ## 下一步仍需验证
 
 本测试不覆盖真实 Claude、外网出口、DNS、系统代发流量、任意子进程、虚拟机或过滤器崩溃。回环测试通过也不能证明这些项目成立。
