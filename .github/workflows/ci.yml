@@ -21,7 +21,7 @@ jobs:
         run: python3 scripts/build_app.py
       - name: Real socket baseline (not filter enforcement)
         run: python3 scripts/probe_baseline.py build/ClaudeDont88.app/Contents/Helpers/guard-probe
-      - name: Real process ownership and controller disconnect tests
+      - name: Worker failures, leases, detached descendants and controller disconnects
         run: python3 scripts/runtime_baseline.py build/ClaudeDont88.app/Contents/Helpers/guard-runtime
       - name: Package preview
         run: ditto -c -k --keepParent build/ClaudeDont88.app build/ClaudeDont88-preview.zip

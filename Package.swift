@@ -8,6 +8,7 @@ let package = Package(
         .executable(name: "ClaudeDont88", targets: ["GuardApp"]),
         .executable(name: "guard-probe", targets: ["GuardProbe"]),
         .executable(name: "guard-runtime", targets: ["GuardRuntime"]),
+        .executable(name: "guard-worker", targets: ["GuardWorker"]),
         .executable(name: "GuardFilter", targets: ["GuardFilter"])
     ],
     targets: [
@@ -16,6 +17,7 @@ let package = Package(
         .executableTarget(name: "GuardApp", dependencies: ["GuardMac", "GuardCore"]),
         .executableTarget(name: "GuardProbe", dependencies: ["GuardMac", "GuardCore"]),
         .executableTarget(name: "GuardRuntime", dependencies: ["GuardMac", "GuardCore"]),
+        .executableTarget(name: "GuardWorker", dependencies: ["GuardMac", "GuardCore"]),
         .executableTarget(name: "GuardFilter", dependencies: ["GuardMac", "GuardCore"]),
         .testTarget(name: "GuardCoreTests", dependencies: ["GuardCore"]),
         .testTarget(name: "GuardMacTests", dependencies: ["GuardMac"])
