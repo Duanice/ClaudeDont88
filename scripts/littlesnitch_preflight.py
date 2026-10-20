@@ -31,6 +31,9 @@ def exercise(probe, protocol, host, port, should_allow):
     errors = []
     control = b"ClaudeDont88-positive-control"
     with socket.socket(family, kind) as server:
+        if protocol == "tcp":
+            # Consecutive experiments reuse the allowed port while old sockets finish TIME_WAIT.
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind((host, port))
         server.settimeout(0.2)
         port = server.getsockname()[1]
