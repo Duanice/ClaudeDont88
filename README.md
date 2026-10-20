@@ -49,6 +49,8 @@ macOS 上 Claude Code 专用代理与断网保护的开发项目。
 
 细节见 [v0.3.0 运行模型](docs/V0.3.0.md) 和 [验证记录](docs/V0.3.0-RESULTS.md)。
 
+后续接入实验：[Little Snitch 回环边界验证](docs/LITTLE-SNITCH-PREFLIGHT.md)。脚本只测试独立探针，不自动导入防火墙规则，也不解锁 Claude。
+
 ## 构建与验证
 
 需要 macOS 15+、Xcode 16+、Python 3。无第三方 Swift 依赖。

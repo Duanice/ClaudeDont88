@@ -21,6 +21,8 @@ jobs:
         run: python3 scripts/build_app.py
       - name: Real socket baseline (not filter enforcement)
         run: python3 scripts/probe_baseline.py build/ClaudeDont88.app/Contents/Helpers/guard-probe
+      - name: Firewall experiment receiver controls (no Little Snitch installed)
+        run: python3 scripts/littlesnitch_preflight.py build/ClaudeDont88.app/Contents/Helpers/guard-probe --baseline
       - name: Worker failures, leases, detached descendants and controller disconnects
         run: python3 scripts/runtime_baseline.py build/ClaudeDont88.app/Contents/Helpers/guard-runtime
       - name: Package preview
