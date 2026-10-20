@@ -1,0 +1,30 @@
+name: Build and test prototype
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Unit and Security.framework tests
+        run: swift test
+      - name: Build preview bundle
+        run: python3 scripts/build_app.py
+      - name: Real socket baseline (not filter enforcement)
+        run: python3 scripts/probe_baseline.py build/ClaudeDont88.app/Contents/Helpers/guard-probe
+      - name: Package preview
+        run: ditto -c -k --keepParent build/ClaudeDont88.app build/ClaudeDont88-preview.zip
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ClaudeDont88-preview-${{ runner.arch }}
+          path: build/ClaudeDont88-preview.zip
+          retention-days: 14
