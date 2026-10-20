@@ -102,7 +102,7 @@ public struct LaunchConditions {
     }
 }
 
-public enum RuntimeAction: String, Codable { case startProxy, stop, demo, launchCLI, launchDesktop }
+public enum RuntimeAction: String, Codable { case startProxy, stop, demo, launchCLI, launchDesktop, ping }
 
 public struct RuntimeCommand: Codable {
     public var action: RuntimeAction
@@ -122,7 +122,9 @@ public struct RuntimeEvent: Codable {
     public var message: String
     public var proxyPID: Int32?
     public var taskPID: Int32?
-    public init(_ state: String, _ message: String, proxyPID: Int32? = nil, taskPID: Int32? = nil) {
+    public var taskGroupID: Int32?
+    public init(_ state: String, _ message: String, proxyPID: Int32? = nil, taskPID: Int32? = nil, taskGroupID: Int32? = nil) {
         self.state = state; self.message = message; self.proxyPID = proxyPID; self.taskPID = taskPID
+        self.taskGroupID = taskGroupID
     }
 }

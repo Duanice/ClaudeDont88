@@ -39,4 +39,23 @@ final class OwnedProcessTests: XCTestCase {
         XCTAssertThrowsError(try OwnedProcess(executable: url,
             queue: DispatchQueue(label: "unsigned-test"), onExit: {}))
     }
+
+    func testSuspendedChildWaitsForExplicitResume() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        FileManager.default.createFile(atPath: file.path, contents: nil)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let output = try FileHandle(forWritingTo: file)
+        defer { try? output.close() }
+        let exited = expectation(description: "resumed child exit")
+        let child = try OwnedProcess(executable: URL(fileURLWithPath: "/usr/bin/printf"),
+            arguments: ["started"], output: output, resumeImmediately: false,
+            queue: DispatchQueue(label: "resume-test"), onExit: { exited.fulfill() })
+        defer { child.stop() }
+        usleep(100000)
+        XCTAssertEqual(try Data(contentsOf: file), Data())
+        try child.resume()
+        wait(for: [exited], timeout: 3)
+        XCTAssertEqual(child.stop(), 0)
+        XCTAssertEqual(try Data(contentsOf: file), Data("started".utf8))
+    }
 }

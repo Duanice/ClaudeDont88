@@ -73,13 +73,14 @@ def main():
               "fixture": "sandbox-exec + fresh profile + mock keychain; proxy rejects every request",
               "systemLeakProtectionVerified": False}
     with tempfile.TemporaryDirectory(prefix="ClaudeDont88-real-test-") as folder:
-        home = pathlib.Path(folder)
+        home = pathlib.Path(folder).resolve()
         (home / "tmp").mkdir()
         driver = home / "driver"
         subprocess.run(["swiftc", "-I", str(binaries / "Modules"),
             str(ROOT / "scripts/fixtures/claude-desktop/main.swift"),
             str(ROOT / "Sources/GuardMac/OwnedProcess.swift"),
             str(ROOT / "Sources/GuardMac/CodeIdentity.swift"),
+            str(ROOT / "Sources/GuardMac/ProcessIdentity.swift"),
             *map(str, (binaries / "GuardCore.build").glob("*.swift.o")),
             "-o", str(driver)], check=True)
         proxy = http.server.ThreadingHTTPServer(("127.0.0.1", 0), RejectingProxy)
@@ -136,6 +137,9 @@ def main():
             stopped = event(child)
             child.wait(timeout=5)
             report["stop"] = stopped
+            stderr = (home / "stderr.log").read_text(errors="replace")
+            report["sandboxInitializationFailure"] = any(
+                text in stderr for text in ["sandbox initialization failed", "sandbox_init", "sandbox_apply"])
             time.sleep(1)
             after = processes()
             report["survivorsAfterStop"] = [pid for pid in observed if pid in after and
@@ -162,7 +166,7 @@ def main():
             if args.diagnostics:
                 args.diagnostics.parent.mkdir(parents=True, exist_ok=True)
                 with args.diagnostics.open("w") as out:
-                    for path in [home / "chromium.log", home / "stdout.log",
+                    for path in [home / "chromium.log", home / "stdout.log", home / "stderr.log",
                                  home / "Library/Logs/Claude/main.log"]:
                         if not path.is_file():
                             continue

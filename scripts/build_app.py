@@ -69,10 +69,11 @@ def main():
     shutil.copy2(binaries / "ClaudeDont88", app / "Contents/MacOS/ClaudeDont88")
     shutil.copy2(binaries / "guard-probe", app / "Contents/Helpers/guard-probe")
     shutil.copy2(binaries / "guard-runtime", app / "Contents/Helpers/guard-runtime")
+    shutil.copy2(binaries / "guard-worker", app / "Contents/Helpers/guard-worker")
     shutil.copy2(binaries / "GuardFilter", ext / "Contents/MacOS/GuardFilter")
     common = {
         "CFBundleInfoDictionaryVersion": "6.0",
-        "CFBundleShortVersionString": "0.2.0",
+        "CFBundleShortVersionString": "0.3.0",
         "CFBundleVersion": "1",
         "LSMinimumSystemVersion": "15.0",
     }
@@ -109,6 +110,7 @@ def main():
             write_plist(output / (bid + ".entitlements"), entitlements)
     run(*sign_args, "--identifier", APP_ID + ".probe", str(app / "Contents/Helpers/guard-probe"))
     run(*sign_args, "--identifier", APP_ID + ".runtime", str(app / "Contents/Helpers/guard-runtime"))
+    run(*sign_args, "--identifier", APP_ID + ".worker", str(app / "Contents/Helpers/guard-worker"))
     for bundle, bid in [(ext, EXT_ID), (app, APP_ID)]:
         entitlements = ["--entitlements", str(output / (bid + ".entitlements"))] if args.identity else []
         run(*sign_args, *entitlements, str(bundle))

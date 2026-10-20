@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import uuid
 
 
 def until(check, timeout=4):
@@ -40,10 +41,22 @@ class Runtime:
         self.proc = subprocess.Popen([binary], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                      stderr=subprocess.DEVNULL, bufsize=0)
         self.buffer = b""
+        self.lock = threading.Lock()
+        self.keepalive = threading.Event()
+        self.heartbeat = threading.Thread(target=self.ping, daemon=True)
+        self.heartbeat.start()
+
+    def ping(self):
+        while not self.keepalive.wait(0.5):
+            try:
+                self.send("ping")
+            except (OSError, ValueError):
+                return
 
     def send(self, action, **fields):
-        self.proc.stdin.write(json.dumps(dict(action=action, **fields)).encode() + b"\n")
-        self.proc.stdin.flush()
+        with self.lock:
+            self.proc.stdin.write(json.dumps(dict(action=action, **fields)).encode() + b"\n")
+            self.proc.stdin.flush()
 
     def event(self, expected, timeout=6):
         deadline = time.monotonic() + timeout
@@ -62,13 +75,16 @@ class Runtime:
 
     def demo(self):
         self.send("demo")
-        group = self.event("demo")["taskPID"]
-        until(lambda: len(members(group)) >= 2)
+        group = self.event("demo")["taskGroupID"]
+        until(lambda: len(members(group)) >= 3)
         return group
 
     def close(self):
-        if not self.proc.stdin.closed:
-            self.proc.stdin.close()
+        self.keepalive.set()
+        self.heartbeat.join(timeout=1)
+        with self.lock:
+            if not self.proc.stdin.closed:
+                self.proc.stdin.close()
         self.proc.wait(timeout=5)
         self.proc.stdout.close()
 
@@ -123,6 +139,127 @@ def runtime_cases(binary):
     return results
 
 
+def failure_cases(binary):
+    results = []
+    unrelated = subprocess.Popen(["/bin/sleep", "60"])
+    try:
+        for failure in ["runtime-kill", "runtime-stall", "controller-stall", "worker-kill", "worker-stall"]:
+            r = Runtime(binary)
+            try:
+                group = r.demo()
+                began = time.monotonic()
+                if failure == "runtime-kill":
+                    r.proc.kill()
+                    r.proc.wait(timeout=3)
+                elif failure == "runtime-stall":
+                    os.kill(r.proc.pid, signal.SIGSTOP)
+                elif failure == "controller-stall":
+                    r.keepalive.set()
+                    r.heartbeat.join(timeout=1)
+                elif failure == "worker-kill":
+                    os.kill(group, signal.SIGKILL)
+                else:
+                    os.kill(group, signal.SIGSTOP)
+                    r.send("stop")
+                until(lambda: stopped(group), timeout=8)
+                assert unrelated.poll() is None, "Unrelated process was stopped"
+                results.append(f"{failure}: task group stopped in {time.monotonic() - began:.2f}s")
+            finally:
+                if failure == "runtime-stall":
+                    r.proc.send_signal(signal.SIGCONT)
+                r.close()
+    finally:
+        unrelated.terminate()
+        unrelated.wait(timeout=3)
+    return results
+
+
+def descendant_cases(binary):
+    results = []
+    worker = str(pathlib.Path(binary).resolve().with_name("guard-worker"))
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory).resolve()
+        marker = root / "must-not-exist"
+        p = subprocess.Popen([worker], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+        p.stdin.write(json.dumps(dict(executable="/usr/bin/touch", arguments=[str(marker)],
+                                      environment={"PATH": "/usr/bin:/bin"})) + "\n")
+        p.stdin.flush()
+        try:
+            assert select.select([p.stdout], [], [], 5)[0]
+            assert json.loads(p.stdout.readline()).get("pid")
+            p.wait(timeout=5)  # Deliberately never acknowledge startup.
+            assert not marker.exists(), "Unacknowledged job executed"
+            result = json.loads(p.stdout.readline())
+            assert result["reason"] == "leaseExpired"
+            results.append("unacknowledged startup never executes target")
+        finally:
+            if p.poll() is None:
+                os.killpg(p.pid, signal.SIGKILL)
+                p.wait(timeout=3)
+            p.stdin.close()
+            p.stdout.close()
+        fixture = root / "detached"
+        subprocess.run(["cc", str(pathlib.Path(__file__).parent / "fixtures/detached.c"),
+                        "-o", str(fixture)], check=True)
+        subprocess.run(["codesign", "--force", "--sign", "-", str(fixture)], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        def start(mode, adopt):
+            token = str(uuid.uuid4())
+            output = root / (token + ".out")
+            output.touch()
+            p = subprocess.Popen([worker], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+            request = dict(executable=str(fixture), arguments=[mode, token],
+                           environment={"PATH": "/usr/bin:/bin"}, outputPath=str(output))
+            if adopt:
+                request.update(detachedExecutable=str(fixture), detachedArgument=token)
+            p.stdin.write(json.dumps(request) + "\n")
+            p.stdin.flush()
+            assert select.select([p.stdout], [], [], 5)[0], "Worker startup timeout"
+            assert json.loads(p.stdout.readline()).get("pid")
+            p.stdin.write("ping\n")
+            p.stdin.flush()
+            pid = int(until(lambda: output.read_text().strip()))
+            assert os.getpgid(pid) != p.pid
+            return p, pid
+
+        def stop(p):
+            p.stdin.close()
+            assert select.select([p.stdout], [], [], 5)[0], "Worker stop timeout"
+            result = json.loads(p.stdout.readline())
+            p.wait(timeout=5)
+            p.stdout.close()
+            return result
+
+        for mode in ["observed", "fast"]:
+            control, control_pid = start(mode, mode == "fast")
+            p = None
+            try:
+                p, pid = start(mode, mode == "fast")
+                time.sleep(0.2)
+                result = stop(p)
+                p = None
+                def dead():
+                    rows = subprocess.check_output(["ps", "-axo", "pid=,stat="], text=True)
+                    states = {int(row.split()[0]): row.split()[1] for row in rows.splitlines()}
+                    return pid not in states or states[pid].startswith("Z")
+                try:
+                    until(dead)
+                except AssertionError:
+                    raise AssertionError(f"{mode} descendant survived: {result}") from None
+                assert result["observedDescendants"] >= 1 and result["signalErrors"] == 0
+                state = subprocess.check_output(["ps", "-p", str(control_pid), "-o", "stat="], text=True).strip()
+                assert state and not state.startswith("Z"), "Different session was stopped"
+                results.append(f"{mode} detached child killed; different session preserved")
+            finally:
+                if p:
+                    stop(p)
+                stop(control)
+    return results
+
+
 class Upstream(http.server.BaseHTTPRequestHandler):
     hits = 0
     def do_CONNECT(self):
@@ -168,6 +305,16 @@ class DirectReceiver(Upstream):
         self.wfile.write(b"DIRECT_FIXTURE")
 
 
+class StalledUpstream(Upstream):
+    entered = threading.Event()
+    release = threading.Event()
+
+    def do_CONNECT(self):
+        type(self).entered.set()
+        type(self).release.wait(5)  # Keep curl alive without contacting the requested host.
+        self.close_connection = True
+
+
 @contextlib.contextmanager
 def server(handler):
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -201,6 +348,47 @@ def proxy_cases(binary, engine):
     finally:
         r.close()
     results = ["proxy crash stops task group and removes private config"]
+    r = Runtime(binary)
+    try:
+        r.send("startProxy", profile=profile, password="")
+        pid = r.event("checking")["proxyPID"]
+        args = subprocess.check_output(["ps", "-p", str(pid), "-o", "args="], text=True)
+        private_directory = pathlib.Path(args.strip().split(" -f ", 1)[1]).parent
+        group = r.demo()
+        r.proc.kill()
+        r.proc.wait(timeout=3)
+        until(lambda: stopped(group) and not private_directory.exists(), timeout=8)
+        results.append("runtime SIGKILL stops proxy/task and removes private proxy files")
+    finally:
+        r.close()
+    with server(StalledUpstream) as upstream:
+        StalledUpstream.entered.clear()
+        StalledUpstream.release.clear()
+        r = Runtime(binary)
+        try:
+            r.send("startProxy", profile={**profile, "port": upstream.server_port}, password="")
+            pid = r.event("checking")["proxyPID"]
+            args = subprocess.check_output(["ps", "-p", str(pid), "-o", "args="], text=True)
+            private_directory = pathlib.Path(args.strip().split(" -f ", 1)[1]).parent
+            group = r.demo()
+            assert StalledUpstream.entered.wait(4), "Health check did not reach local upstream"
+            rows = subprocess.check_output(["ps", "-axo", "pid=,ppid=,pgid=,comm="], text=True)
+            processes = {int(pid): (int(ppid), int(pgid), comm)
+                         for pid, ppid, pgid, comm in (row.split(None, 3) for row in rows.splitlines())}
+            health_workers = [ppid for _, (ppid, pgid, comm) in processes.items()
+                              if comm == "/usr/bin/curl" and ppid == pgid
+                              and processes.get(ppid, (0,))[0] == r.proc.pid]
+            assert len(health_workers) == 1, "Cannot identify owned health worker"
+            os.kill(health_workers[0], signal.SIGKILL)
+            r.event("cleanupUncertain")
+            until(lambda: stopped(group) and stopped(health_workers[0]))
+            assert not private_directory.exists()
+            r.send("demo")
+            assert "清理" in r.event("blocked")["message"]
+            results.append("health worker death preserves cleanup uncertainty and blocks new sessions")
+        finally:
+            StalledUpstream.release.set()
+            r.close()
     with server(Upstream) as upstream, server(DirectReceiver) as direct, tempfile.TemporaryDirectory() as tmp:
         config["proxies"][0]["port"] = upstream.server_port
         path = pathlib.Path(tmp) / "config.json"
@@ -246,6 +434,8 @@ def main():
     parser.add_argument("--engine")
     args = parser.parse_args()
     results = runtime_cases(args.runtime)
+    results += failure_cases(args.runtime)
+    results += descendant_cases(args.runtime)
     if args.engine:
         results += proxy_cases(args.runtime, args.engine)
     print(json.dumps({"passed": results, "proxy_fixture": "PASS" if args.engine else "NOT_RUN",

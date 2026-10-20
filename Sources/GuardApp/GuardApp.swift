@@ -228,7 +228,7 @@ final class PrototypeController: NSObject, ObservableObject, OSSystemExtensionRe
                     config.filterDataProviderBundleIdentifier = Self.extensionID
                     config.vendorConfiguration = ["policy": data]
                     self.manager.providerConfiguration = config
-                    self.manager.localizedDescription = "ClaudeDont88 v0.2.0 实验过滤器"
+                    self.manager.localizedDescription = "ClaudeDont88 v0.3.0 实验过滤器"
                     self.manager.isEnabled = true
                     self.manager.saveToPreferences { error in
                         DispatchQueue.main.async { self.finish(error) }

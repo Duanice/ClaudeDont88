@@ -5,15 +5,16 @@ import GuardCore
 public final class RuntimeSession {
     public let queue: DispatchQueue
     private let emit: (RuntimeEvent) -> Void
-    private var engine: OwnedProcess?
-    private var task: OwnedProcess?
-    private var health: OwnedProcess?
+    private var engine: WorkerProcess?
+    private var task: WorkerProcess?
+    private var health: WorkerProcess?
     private var directory: URL?
     private var profile: ProxyProfile?
     private var token = ""
     private var generation = UUID()
     private var conditions = LaunchConditions()
     private var timer: DispatchSourceTimer?
+    private var cleanupUncertain = false
     private let environment = [
         "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
         "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
@@ -26,7 +27,11 @@ public final class RuntimeSession {
 
     public func handle(_ command: RuntimeCommand) {
         do {
+            if cleanupUncertain && command.action != .stop && command.action != .ping {
+                throw PolicyError.invalid("上次清理缺少完整回执，暂不创建新会话；请先核查残留进程。")
+            }
             switch command.action {
+            case .ping: emit(RuntimeEvent("heartbeat", "监督连接正常"))
             case .stop: stop("已关闭专用代理并强制结束本 App 管理的任务")
             case .startProxy:
                 guard let profile = command.profile else { throw PolicyError.invalid("缺少代理配置") }
@@ -34,17 +39,17 @@ public final class RuntimeSession {
             case .demo:
                 guard task == nil else { throw PolicyError.invalid("已有受控任务，请先停止") }
                 let epoch = generation
-                task = try OwnedProcess(executable: URL(fileURLWithPath: "/bin/sh"),
+                task = try WorkerProcess(executable: URL(fileURLWithPath: "/bin/sh"),
                     arguments: ["-c", "/bin/sleep 600 & wait"], environment: environment, queue: queue) { [weak self] in
                         guard let self, self.generation == epoch else { return }
                         self.stop("演练进程已退出")
                     }
-                emit(RuntimeEvent("demo", "不联网的进程组演练正在运行，可点击“强制结束”", proxyPID: engine?.pid, taskPID: task?.pid))
+                emit(RuntimeEvent("demo", "不联网的守护演练正在运行，可点击“强制结束”", proxyPID: engine?.pid, taskPID: task?.pid, taskGroupID: task?.workerPID))
             case .launchCLI, .launchDesktop:
                 try launch(command)
             }
         } catch {
-            emit(RuntimeEvent("blocked", error.localizedDescription, proxyPID: engine?.pid, taskPID: task?.pid))
+            emit(RuntimeEvent("blocked", error.localizedDescription, proxyPID: engine?.pid, taskPID: task?.pid, taskGroupID: task?.workerPID))
         }
     }
 
@@ -62,8 +67,9 @@ public final class RuntimeSession {
             self.directory = directory; self.profile = profile; self.token = token
             let epoch = UUID()
             generation = epoch
-            engine = try OwnedProcess(executable: URL(fileURLWithPath: profile.enginePath),
-                arguments: ["-d", directory.path, "-f", config.path], environment: environment, queue: queue) { [weak self] in
+            engine = try WorkerProcess(executable: URL(fileURLWithPath: profile.enginePath),
+                arguments: ["-d", directory.path, "-f", config.path], environment: environment,
+                cleanupDirectory: directory, queue: queue) { [weak self] in
                     guard let self, self.generation == epoch else { return }
                     self.stop("专用代理进程退出；受控任务已终止", fault: true)
                 }
@@ -84,17 +90,22 @@ public final class RuntimeSession {
         guard epoch == generation, engine != nil, health == nil, let profile, let directory else { return }
         let resultURL = directory.appendingPathComponent("health.json")
         do {
-            FileManager.default.createFile(atPath: resultURL.path, contents: nil, attributes: [.posixPermissions: 0o600])
-            let output = try FileHandle(forWritingTo: resultURL)
-            defer { try? output.close() }
-            health = try OwnedProcess(executable: URL(fileURLWithPath: "/usr/bin/curl"),
+            try Data().write(to: resultURL, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: resultURL.path)
+            health = try WorkerProcess(executable: URL(fileURLWithPath: "/usr/bin/curl"),
                 arguments: ["--silent", "--fail", "--proxy", localProxyURL(port: profile.localPort),
                             "--noproxy", "", "--proto", "=https", "--connect-timeout", "3",
                             "--max-time", "5", "--max-filesize", "65536", "https://ipwho.is/"],
-                environment: environment, output: output, queue: queue) { [weak self] in
+                environment: environment, outputURL: resultURL, queue: queue) { [weak self] in
                     guard let self, self.generation == epoch else { return }
                     let status = self.health?.stop()
+                    let uncertain = self.health?.cleanupUncertain ?? true
                     self.health = nil
+                    if uncertain {
+                        self.cleanupUncertain = true
+                        self.stop("代理检查的清理状态未知", fault: true)
+                        return
+                    }
                     guard status == 0, let data = try? Data(contentsOf: resultURL), data.count <= 65536,
                           let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                           result["success"] as? Bool == true, result["country_code"] as? String == "US" else {
@@ -104,7 +115,7 @@ public final class RuntimeSession {
                     self.conditions.proxyReady = true
                     // IP geolocation proves one request's exit, not fault-safe upstream behavior.
                     self.emit(RuntimeEvent("proxyReady", "本次出口检查为美国；系统拦截尚未验收，Claude 启动仍被锁定",
-                                           proxyPID: self.engine?.pid, taskPID: self.task?.pid))
+                                           proxyPID: self.engine?.pid, taskPID: self.task?.pid, taskGroupID: self.task?.workerPID))
                 }
         } catch { stop("无法运行代理检查，已停止会话", fault: true) }
     }
@@ -130,23 +141,29 @@ public final class RuntimeSession {
             throw PolicyError.invalid("任务内容为空或过长")
         }
         let epoch = generation
-        task = try OwnedProcess(executable: URL(fileURLWithPath: path),
+        task = try WorkerProcess(executable: URL(fileURLWithPath: path),
                                 arguments: ["-p", prompt], environment: env, queue: queue) { [weak self] in
             guard let self, self.generation == epoch else { return }
             self.stop("受控任务已退出")
         }
-        emit(RuntimeEvent("running", "受控任务运行中", proxyPID: engine?.pid, taskPID: task?.pid))
+        emit(RuntimeEvent("running", "受控任务运行中", proxyPID: engine?.pid, taskPID: task?.pid, taskGroupID: task?.workerPID))
     }
 
     public func stop(_ message: String, fault: Bool = false) {
         generation = UUID()
         timer?.cancel(); timer = nil
         // Close proxy channels before signalling the owned task group. This is not an OS-wide firewall.
-        engine?.stop(); engine = nil
-        health?.stop(); health = nil
-        task?.stop(); task = nil
+        engine?.stop()
+        health?.stop()
+        task?.stop()
+        cleanupUncertain = cleanupUncertain || [engine, health, task].compactMap { $0 }.contains { $0.cleanupUncertain }
+        engine = nil; health = nil; task = nil
         if let directory { try? FileManager.default.removeItem(at: directory) }
         directory = nil; profile = nil; token = ""; conditions = LaunchConditions()
-        emit(RuntimeEvent(fault ? "fault" : "stopped", message))
+        if cleanupUncertain {
+            emit(RuntimeEvent("cleanupUncertain", "已执行所属进程组清理，但部分守护回执缺失或后代终止失败；请核查残留进程。新会话保持锁定。"))
+        } else {
+            emit(RuntimeEvent(fault ? "fault" : "stopped", message))
+        }
     }
 }

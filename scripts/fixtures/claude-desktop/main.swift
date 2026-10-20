@@ -22,6 +22,13 @@ do {
     FileManager.default.createFile(atPath: outputURL.path, contents: nil)
     let output = try FileHandle(forWritingTo: outputURL)
     defer { try? output.close() }
+    let errorURL = home.appendingPathComponent("stderr.log")
+    FileManager.default.createFile(atPath: errorURL.path, contents: nil)
+    let errors = try FileHandle(forWritingTo: errorURL)
+    defer { try? errors.close() }
+    let crashpad = app.appendingPathComponent("Contents/Frameworks/Electron Framework.framework/Versions/A/Helpers/chrome_crashpad_handler")
+    let detached = try DetachedProcessRule(executable: crashpad,
+        argument: "--database=\(home.path)/profile/Crashpad")
     let child = try OwnedProcess(executable: app.appendingPathComponent("Contents/MacOS/Claude"),
         arguments: ["--user-data-dir=\(home.path)/profile", "--proxy-server=\(proxy)",
                     "--proxy-bypass-list=<-loopback>", "--enable-logging=file",
@@ -33,13 +40,16 @@ do {
                       "CLAUDE_CONFIG_DIR": home.path + "/cli",
                       "HTTP_PROXY": proxy, "HTTPS_PROXY": proxy,
                       "http_proxy": proxy, "https_proxy": proxy, "NO_PROXY": "", "no_proxy": ""],
-        output: output, queue: DispatchQueue(label: "claude-smoke"), onExit: {})
+        output: output, errorOutput: errors, detachedRule: detached,
+        queue: DispatchQueue(label: "claude-smoke"), onExit: {})
     emit(["state": "started", "pid": child.pid, "pgid": getpgid(child.pid)])
     // EOF also stops the owned process; an exception in the Python driver closes this pipe.
     _ = readLine()
     let began = DispatchTime.now().uptimeNanoseconds
     let status = child.stop()
     emit(["state": "stopped", "status": status as Any? ?? NSNull(),
+          "observedDescendants": child.observedDescendants,
+          "descendantSignalErrors": child.descendantSignalErrors,
           "leaderWaitMilliseconds": Double(DispatchTime.now().uptimeNanoseconds - began) / 1_000_000])
 } catch {
     emit(["state": "error", "error": error.localizedDescription])

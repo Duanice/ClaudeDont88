@@ -10,7 +10,7 @@ struct GuardApp: App {
     @StateObject private var filter = PrototypeController()
 
     var body: some Scene {
-        Window("ClaudeDont88 · v0.2.0", id: "dashboard") {
+        Window("ClaudeDont88 · v0.3.0", id: "dashboard") {
             TabView {
                 RuntimeView(runtime: runtime).tabItem { Label("运行状态", systemImage: "shield") }
                 ProxySettingsView(runtime: runtime).tabItem { Label("专用代理", systemImage: "network") }
@@ -36,7 +36,7 @@ struct MenuContent: View {
     @ObservedObject var runtime: RuntimeController
     @Environment(\.openWindow) private var openWindow
     var body: some View {
-        Text("v0.2.0 · 保护尚未验收")
+        Text("v0.3.0 · 保护尚未验收")
         Text(runtime.active ? "有实验进程运行" : "没有受控任务")
         Button("打开控制面板") { NSApplication.shared.activate(); openWindow(id: "dashboard") }
         Divider()
@@ -59,8 +59,9 @@ struct RuntimeView: View {
             GroupBox("会话状态") {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(runtime.message).textSelection(.enabled)
+                    Text(runtime.supervision).foregroundStyle(.secondary)
                     if let pid = runtime.proxyPID { Text("专用代理进程：\(pid)") }
-                    if let pid = runtime.taskPID { Text("受控进程组：\(pid)") }
+                    if let pid = runtime.taskPID { Text("受控任务：\(pid)") }
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(8)
             }
             HStack {
@@ -69,11 +70,11 @@ struct RuntimeView: View {
                 Button("强制结束受控任务", role: .destructive) { runtime.send(RuntimeCommand(.stop)) }
                     .disabled(!runtime.active)
             }
-            Text("点击启动会检查前置条件并说明拒绝原因。强退仅作用于本 App 创建的进程组，不会接管从其他位置启动的 Claude。")
+            Text("停止覆盖本 App 创建的进程组和已登记的子进程；完整后代覆盖尚未验收。从其他位置启动的 Claude 不会自动被接管。")
                 .font(.callout).foregroundStyle(.secondary)
             Divider()
             Text("本地停止演练").font(.headline)
-            Text("创建一个不联网的测试进程及子进程，用于验证强退和退出清理。")
+            Text("创建不联网的测试任务和独立守护进程。监督进程失联或卡死超过约 3 秒时，守护进程会结束本组任务。")
             Button("启动不联网演练") { runtime.send(RuntimeCommand(.demo)) }
                 .disabled(runtime.taskPID != nil)
                 .accessibilityLabel("启动不联网演练")

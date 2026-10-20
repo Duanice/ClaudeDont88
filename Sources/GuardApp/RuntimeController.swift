@@ -12,11 +12,15 @@ final class RuntimeController: ObservableObject {
     @Published var state = "stopped"
     @Published var proxyPID: Int32?
     @Published var taskPID: Int32?
+    @Published var supervision = "尚未连接"
     private var helper: Process?
     private var input: FileHandle?
     private var output: FileHandle?
     private var buffer = Data()
     private var controlLost = false
+    private var heartbeat: Timer?
+    private var lastHeartbeat = DispatchTime.now().uptimeNanoseconds
+    private var helperIdentity: ProcessIdentity?
     var active: Bool { proxyPID != nil || taskPID != nil || state == "checking" }
 
     private init() {
@@ -67,10 +71,10 @@ final class RuntimeController: ObservableObject {
     }
 
     private func ensureHelper() throws {
+        if helper?.isRunning == true { return }
         guard !controlLost else {
             throw PolicyError.invalid("上次监督进程异常退出，清理状态未知。请先核查残留进程；不会用新会话覆盖这个故障。")
         }
-        if helper?.isRunning == true { return }
         let url = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/guard-runtime")
         _ = try CodeIdentity.inspect(url)
         let process = Process()
@@ -95,6 +99,9 @@ final class RuntimeController: ObservableObject {
                     self.state = "fault"
                 }
                 self.helper = nil
+                self.heartbeat?.invalidate(); self.heartbeat = nil
+                self.helperIdentity = nil
+                self.supervision = "监督连接已关闭"
                 self.input = nil
                 self.output?.readabilityHandler = nil
                 self.output = nil
@@ -105,6 +112,26 @@ final class RuntimeController: ObservableObject {
         try events.fileHandleForWriting.close()
         helper = process; input = control.fileHandleForWriting; output = events.fileHandleForReading
         buffer.removeAll()
+        helperIdentity = ProcessIdentity.capture(process.processIdentifier)
+        lastHeartbeat = DispatchTime.now().uptimeNanoseconds
+        supervision = "正在确认监督连接"
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.helper != nil else { return }
+                if DispatchTime.now().uptimeNanoseconds - self.lastHeartbeat > 4_000_000_000 {
+                    self.controlLost = true
+                    self.shutdown()
+                    _ = self.helperIdentity?.signal(SIGKILL)
+                    self.state = "fault"
+                    self.supervision = "监督失联"
+                    self.message = "监督心跳超时，已断开控制连接；独立任务守护会执行清理。完整后代与系统阻断仍未验收。"
+                    return
+                }
+                self.send(RuntimeCommand(.ping))
+            }
+        }
+        heartbeat = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func receive(_ data: Data) {
@@ -114,12 +141,19 @@ final class RuntimeController: ObservableObject {
             let line = Data(buffer[..<end])
             buffer.removeSubrange(...end)
             guard let event = try? JSONDecoder().decode(RuntimeEvent.self, from: line) else { continue }
+            if event.state == "heartbeat" {
+                lastHeartbeat = DispatchTime.now().uptimeNanoseconds
+                supervision = "监督连接正常"
+                continue
+            }
+            if event.state == "cleanupUncertain" { controlLost = true }
             state = event.state; message = event.message
             proxyPID = event.proxyPID; taskPID = event.taskPID
         }
     }
 
     func shutdown() {
+        heartbeat?.invalidate(); heartbeat = nil
         // EOF asks the independent helper to close the proxy and kill owned groups, even on UI exit.
         try? input?.close()
         input = nil
