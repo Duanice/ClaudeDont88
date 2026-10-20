@@ -72,7 +72,7 @@ def main():
     common = {
         "CFBundleInfoDictionaryVersion": "6.0",
         "CFBundleShortVersionString": "0.1.0",
-        "CFBundleVersion": "1",
+        "CFBundleVersion": "2",
         "LSMinimumSystemVersion": "15.0",
     }
     write_plist(app / "Contents/Info.plist", dict(common, **{

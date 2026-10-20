@@ -11,11 +11,12 @@ public enum CodeIdentity {
         }
     }
 
-    public static func inspect(_ url: URL) throws -> TargetIdentity {
+    public static func inspect(_ url: URL, requiring required: SecRequirement? = nil) throws -> TargetIdentity {
         var code: SecStaticCode?
         try check(SecStaticCodeCreateWithPath(url as CFURL, [], &code))
         guard let code else { throw PolicyError.invalid("Cannot read executable signature") }
-        try check(SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSStrictValidate), nil))
+        try check(SecStaticCodeCheckValidity(code,
+            SecCSFlags(rawValue: kSecCSStrictValidate | kSecCSCheckAllArchitectures), required))
         var requirement: SecRequirement?
         try check(SecCodeCopyDesignatedRequirement(code, [], &requirement))
         guard let requirement else { throw PolicyError.invalid("Missing designated requirement") }

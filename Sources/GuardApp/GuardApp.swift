@@ -10,7 +10,7 @@ struct GuardApp: App {
     @StateObject private var model = PrototypeController()
 
     var body: some Scene {
-        WindowGroup("ClaudeDont88 · v0.1.0") {
+        WindowGroup("ClaudeDont88 · v0.1.0 (2)") {
             VStack(alignment: .leading, spacing: 16) {
                 Label("实验原型 · 尚未通过防泄漏验收", systemImage: "exclamationmark.shield")
                     .font(.title2.bold()).foregroundStyle(.orange)
@@ -32,15 +32,22 @@ struct GuardApp: App {
                         Text("端点可达不代表经过美国节点；必须另行验证代理上游。")
                             .font(.caption).foregroundStyle(.secondary)
                         HStack {
+                            Button("扫描已安装的 Claude", action: model.discoverClaude)
                             Button("添加已签名程序…", action: model.chooseTarget)
                             Button("添加内置测试程序", action: model.addProbe)
                             Button("清空") { model.targets = [] }
                         }
-                        ForEach(model.targets, id: \.requirement) { target in
-                            Text(target.label).font(.system(.body, design: .monospaced))
+                        if !model.targets.isEmpty {
+                            ScrollView {
+                                VStack(alignment: .leading) {
+                                    ForEach(model.targets, id: \.requirement) { target in
+                                        Text(target.label).font(.system(.body, design: .monospaced))
+                                    }
+                                }.frame(maxWidth: .infinity, alignment: .leading)
+                            }.frame(height: 110)
                         }
                         if model.targets.isEmpty {
-                            Text("未选择目标。桌面 App 的辅助程序需要逐个登记。").foregroundStyle(.secondary)
+                            Text("未选择目标。扫描可登记桌面包内的原生程序及标准位置的原生 CLI。").foregroundStyle(.secondary)
                         }
                     }.padding(6)
                 }
@@ -64,6 +71,22 @@ struct GuardApp: App {
                     .font(.headline)
                 Text(model.message).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                if let inventory = model.inventory {
+                    DisclosureGroup("扫描详情 · \(inventory.executables.count) 个程序 / \(inventory.targets.count) 个签名身份") {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("桌面版：\(inventory.desktopVersion ?? "未验证")；CLI：\(inventory.cliFound ? "已找到" : "未找到")")
+                                ForEach(inventory.executables.indices, id: \.self) { i in
+                                    Text(inventory.executables[i].path).textSelection(.enabled)
+                                }
+                                ForEach(inventory.issues.indices, id: \.self) { i in
+                                    Text(inventory.issues[i]).foregroundStyle(.orange).textSelection(.enabled)
+                                }
+                                Text("清单不覆盖运行时下载的程序、任意子进程、虚拟机或远程任务。")
+                            }.font(.caption).frame(maxWidth: .infinity, alignment: .leading)
+                        }.frame(height: 130)
+                    }
+                }
                 Spacer(minLength: 0)
                 HStack {
                     Button("停用测试过滤", action: { model.showDisableConfirmation = true })
@@ -93,6 +116,7 @@ final class PrototypeController: NSObject, ObservableObject, OSSystemExtensionRe
     @Published var configurationEnabled = false
     @Published var busy = false
     @Published var showDisableConfirmation = false
+    @Published var inventory: ClaudeInventory?
     private let manager = NEFilterManager.shared()
 
     var provisioned: Bool {
@@ -114,6 +138,29 @@ final class PrototypeController: NSObject, ObservableObject, OSSystemExtensionRe
 
     func addProbe() {
         addTarget(Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/guard-probe"))
+    }
+
+    func discoverClaude() {
+        guard !busy, !configurationEnabled else { return }
+        busy = true
+        message = "正在验证 Claude 及包内程序的签名…"
+        Task {
+            let found = await Task.detached(priority: .userInitiated) { ClaudeDiscovery.scan() }.value
+            inventory = found
+            var merged = targets
+            for target in found.targets where !merged.contains(where: { $0.requirement == target.requirement }) {
+                merged.append(target)
+            }
+            if merged.count > 64 {
+                message = "扫描得到的身份超过 64 个，未更改目标清单。"
+            } else {
+                targets = merged
+                message = "扫描完成：\(found.executables.count) 个程序，\(found.targets.count) 个签名身份。" +
+                    (found.issues.isEmpty ? "" : "另有 \(found.issues.count) 项未覆盖，见扫描详情。") +
+                    "登记不代表已启用网络保护。"
+            }
+            busy = false
+        }
     }
 
     private func addTarget(_ url: URL) {
