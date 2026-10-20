@@ -5,16 +5,15 @@ import SystemExtensions
 import GuardCore
 import GuardMac
 
-@main
-struct GuardApp: App {
-    @StateObject private var model = PrototypeController()
+struct FilterExperimentView: View {
+    @ObservedObject var model: PrototypeController
 
-    var body: some Scene {
-        WindowGroup("ClaudeDont88 · v0.1.0 (2)") {
+    var body: some View {
+        ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Label("实验原型 · 尚未通过防泄漏验收", systemImage: "exclamationmark.shield")
                     .font(.title2.bold()).foregroundStyle(.orange)
-                Text("本版本验证签名识别和新连接过滤。不会强退 Claude，不保证代理上游、子进程或扩展崩溃期间的安全。")
+                Text("此页用于签名与过滤实验。系统过滤器尚未通过实机防泄漏验收；身份登记不等于保护已生效。")
                     .fixedSize(horizontal: false, vertical: true)
                 GroupBox("测试策略") {
                     VStack(alignment: .leading, spacing: 10) {
@@ -229,7 +228,7 @@ final class PrototypeController: NSObject, ObservableObject, OSSystemExtensionRe
                     config.filterDataProviderBundleIdentifier = Self.extensionID
                     config.vendorConfiguration = ["policy": data]
                     self.manager.providerConfiguration = config
-                    self.manager.localizedDescription = "ClaudeDont88 v0.1.0 实验过滤器"
+                    self.manager.localizedDescription = "ClaudeDont88 v0.2.0 实验过滤器"
                     self.manager.isEnabled = true
                     self.manager.saveToPreferences { error in
                         DispatchQueue.main.async { self.finish(error) }
