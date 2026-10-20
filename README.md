@@ -63,6 +63,8 @@ python3 scripts/runtime_baseline.py build/ClaudeDont88.app/Contents/Helpers/guar
 
 GitHub CI 不安装第三方代理内核；该项本机补充测试单独记录。
 
+已安装 Claude 的手动实机测试见 [真实 Claude 验证记录](docs/V0.2.0-REAL-CLAUDE.md)。已实际启动/终止临时实例，并观察到 crashpad 脱离进程组；完整桌面启动在外层测试沙箱中失败，仍未通过代理路径验收。可复现脚本不会打包进 App，也不会由 CI 自动运行。
+
 ## Claude 发现与过滤实验
 
 “过滤实验”保留 v0.1 的扫描、目标登记和 `NEFilterDataProvider` 原型。当前安装的 Claude 2.42304.2 扫描到 16 个程序、13 个身份；一个脚本与缺失的独立 CLI 列为未覆盖。
